@@ -44,7 +44,7 @@ OAUTH_PROVIDERS = ["openai-codex", "qwen-oauth", "nous"]
 MIRROR = {
     "ANTHROPIC":   ("anthropic",  "anthropic"),
     "OPENAI":      ("openai",     "openai"),
-    "GEMINI":      ("google",     "google"),
+    "GEMINI":      ("gemini",     "google"),
     "VERTEX":      ("vertex",     "vertex"),
     "MISTRAL":     ("mistral",    "mistral"),
     "DEEPSEEK":    ("deepseek",   "deepseek"),
@@ -314,7 +314,7 @@ def status():
     print("\n── Hermes pool ──")
     subprocess.run(["hermes", "auth", "list"], timeout=30)
     print("\n── OpenCode providers ──")
-    subprocess.run(["~/.opencode/bin/opencode", "providers", "list"], shell=True, timeout=15)
+    subprocess.run([str(HOME / ".opencode/bin/opencode"), "providers", "list"], timeout=20)
     if AI_ENV.exists():
         env = load_ai_env()
         keys = sum(1 for k in env if k.endswith("_KEY") or k.endswith("_KEYS"))
