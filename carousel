@@ -168,29 +168,62 @@ alias carreg='carousel refresh'
 
 
 # ── mirror keys ───────────────────────────────────────────────────────────────
-def mirror_to_hermes(env: dict):
-    """Pool all 28 keys into Hermes via `hermes auth add`."""
+def mirror_to_hermes(env: dict, skip_existing: bool = True):
+    """Pool all 28 keys into Hermes via `hermes auth add`.
+
+    skip_existing: if True, check existing pool via `hermes auth list` and skip
+    providers already present (avoids re-adding every run).
+    """
     print("\n── mirroring keys → Hermes ──")
+    existing_provs = set()
+    if skip_existing:
+        try:
+            r = subprocess.run(["hermes", "auth", "list"], capture_output=True, text=True, timeout=20)
+            # Parse "(N credentials)" lines; provider is the line above
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if "credentials" in line and line.startswith("("):
+                    prov = line.split("credentials")[0].strip().rstrip("(").strip()
+                    if prov:
+                        existing_provs.add(prov)
+        except subprocess.TimeoutExpired:
+            pass
+        # Also strip "(N credential)" singular
+        existing_provs = {p for p in existing_provs if p}
+        # Merge in known mapped labels that would show as custom:<name>
+        existing_provs.update({
+            f"custom:{p}" for p in
+            ("groq","mistral","vertex","deepseek","gemini","huggingface","xai",
+             "cohere","cerebras","together","replicate","sambanova","aimlapi",
+             "ai21","moondream","zhipu","deepgram","kluster","cloudflare","nvidia")
+        })
+
     ok = fail = 0
     for prefix, (hprov, _) in MIRROR.items():
-        if not hprov:
+        if not hprov or hprov in existing_provs:
+            if hprov in existing_provs:
+                print(f"  · {hprov} already pooled (skip)")
             continue
         keys = split_keys(env.get(f"{prefix}_KEY", "")) or split_keys(env.get(f"{prefix}_KEYS", ""))
         for i, key in enumerate(keys, 1):
             if not key or key.startswith("#"):
                 continue
             label = f"{prefix.lower()}-{i}"
-            r = subprocess.run(
-                ["hermes", "auth", "add", hprov, "--type", "api-key",
-                 "--api-key", key, "--label", label],
-                capture_output=True, text=True
-            )
-            if r.returncode == 0:
-                ok += 1
-                print(f"  ✓ {hprov} #{i}")
-            else:
+            try:
+                r = subprocess.run(
+                    ["hermes", "auth", "add", hprov, "--type", "api-key",
+                     "--api-key", key, "--label", label],
+                    capture_output=True, text=True, timeout=20,
+                )
+                if r.returncode == 0:
+                    ok += 1
+                    print(f"  ✓ {hprov} #{i}")
+                else:
+                    fail += 1
+                    print(f"  ✗ {hprov} #{i}: {r.stderr.strip()[:80]}")
+            except subprocess.TimeoutExpired:
                 fail += 1
-                print(f"  ✗ {hprov} #{i}: {r.stderr.strip()[:80]}")
+                print(f"  ⚠ {hprov} #{i}: timed out (skipped)")
     print(f"\nHermes: {ok} added, {fail} failed")
 
 
@@ -279,9 +312,9 @@ def refresh():
 def status():
     """Show pooled creds + ai/.env key count + opencode provider count."""
     print("\n── Hermes pool ──")
-    subprocess.run(["hermes", "auth", "list"])
+    subprocess.run(["hermes", "auth", "list"], timeout=30)
     print("\n── OpenCode providers ──")
-    subprocess.run(["~/.opencode/bin/opencode", "providers", "list"], shell=True)
+    subprocess.run(["~/.opencode/bin/opencode", "providers", "list"], shell=True, timeout=15)
     if AI_ENV.exists():
         env = load_ai_env()
         keys = sum(1 for k in env if k.endswith("_KEY") or k.endswith("_KEYS"))
